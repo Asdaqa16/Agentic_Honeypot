@@ -38,7 +38,7 @@ class HoneypotRequest(BaseModel):
 @app.post("/api/honeypot")
 def honeypot(
     body: HoneypotRequest,
-    x_api_key: str = Header(None)
+    x_api_key: str = Header(None, alias="x-api-key")
 ):
     # 1️⃣ API key check
     if x_api_key != "dev_key":
@@ -56,13 +56,23 @@ def honeypot(
     # 4️⃣ Persist updated session
     save_session(session_id, session)
 
-    # 5️⃣ Mandatory final callback (ONLY ONCE)
+    # 5️⃣ Mandatory final callback (ONLY ONCE, RACE-SAFE)
     if agent_output["should_finalize"] and not session.get("finalized", False):
+        # 🔒 Mark finalized FIRST to prevent duplicate callbacks
+        session["finalized"] = True
+        save_session(session_id, session)
+
         payload = {
             "sessionId": session_id,
             "scamDetected": session.get("scam_detected", True),
             "totalMessagesExchanged": len(session["messages"]),
-            "extractedIntelligence": session["intelligence"],
+            "extractedIntelligence": {
+                "bankAccounts": session["intelligence"].get("bankAccounts", []),
+                "upiIds": session["intelligence"].get("upiIds", []),
+                "phishingLinks": session["intelligence"].get("phishingLinks", []),
+                "phoneNumbers": session["intelligence"].get("phoneNumbers", []),
+                "suspiciousKeywords": session["intelligence"].get("suspiciousKeywords", [])
+            },
             "agentNotes": agent_output["agent_notes"]
         }
 
@@ -72,10 +82,8 @@ def honeypot(
                 json=payload,
                 timeout=5
             )
-            session["finalized"] = True
-            save_session(session_id, session)
         except Exception as e:
-            # Do NOT crash the API if callback fails
+            # Do NOT crash API even if callback fails
             print("Callback failed:", e)
 
     # 6️⃣ Return agent reply (SPEC FORMAT)
