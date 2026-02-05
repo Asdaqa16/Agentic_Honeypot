@@ -50,13 +50,19 @@ def agent_step(session: dict, incoming_text: str) -> dict:
     # LLM RATE + GATING DECISION
     # -----------------------------
     now = time.time()
-    global LLM_WINDOW
-    LLM_WINDOW[:] = [t for t in LLM_WINDOW if now - t < LLM_WINDOW_SECONDS]
+
+    # 🔒 Session-scoped LLM window (NOT global)
+    llm_window = agent_state.setdefault("llm_window", [])
+    llm_window[:] = [
+        t for t in llm_window
+        if now - t < LLM_WINDOW_SECONDS
+    ]
 
     allow_llm = (
-        len(LLM_WINDOW) < LLM_MAX_CALLS
+        len(llm_window) < LLM_MAX_CALLS
         and should_use_llm(strategy, agent_state)
     )
+
 
     # -----------------------------
     # RESPONSE GENERATION
